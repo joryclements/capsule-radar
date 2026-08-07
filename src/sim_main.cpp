@@ -142,6 +142,9 @@ int main(int argc, char **argv) {
         ui_set_large_text(true);
         radar::setLargeText(true);
     }
+    // APTLABEL=0|1|2 ./program — preview the airport label formats (IATA / ICAO / name).
+    // On the device this comes from NVS; the sim has none, so it reads the environment.
+    if (const char *al = getenv("APTLABEL")) ui_set_airport_label(atoi(al));
     const char *shotPath = (argc >= 3 && strcmp(argv[1], "--shot") == 0) ? argv[2] : NULL;
     const char *gifPath  = (argc >= 3 && strcmp(argv[1], "--gif")  == 0) ? argv[2] : NULL;
 

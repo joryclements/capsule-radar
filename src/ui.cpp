@@ -140,8 +140,12 @@ static void fold_ascii(char *s) {
 }
 
 // ----------------------------------------------------------------- detail card
-// How the route line labels airports. LABEL_NAME is the historical behaviour.
+// How the route line labels airports. LABEL_NAME is the historical behaviour. Set from NVS
+// at boot; an out-of-range stored value falls back to the default rather than misrendering.
 static AirportLabelFormat s_labelFmt = AIRPORT_LABEL_DEFAULT;
+void ui_set_airport_label(int fmt) {
+    s_labelFmt = (fmt < LABEL_IATA || fmt > LABEL_NAME) ? AIRPORT_LABEL_DEFAULT : (AirportLabelFormat)fmt;
+}
 
 // Set the route text, choosing the largest font that still keeps it on one line. Codes
 // ("LAX -> JFK") always fit and read better big; full names fall back to the body font
