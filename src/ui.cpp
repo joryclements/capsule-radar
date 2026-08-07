@@ -26,6 +26,9 @@ static lv_obj_t *s_tv = nullptr;
 static lv_obj_t *s_tileRadar = nullptr, *s_tileList = nullptr, *s_tileStats = nullptr, *s_tileWeather = nullptr;
 static lv_obj_t *s_card = nullptr, *s_cardTitle = nullptr, *s_cardL = nullptr, *s_cardR = nullptr;
 static lv_obj_t *s_cardRoute = nullptr;
+static const lv_coord_t CARD_PAD = 12;   // card padding; also the route line's wrap margin
+static lv_coord_t s_cardRouteY = 0;      // route line's top edge inside the card
+static lv_coord_t s_cardInnerW = 0;      // usable text width inside the card
 static lv_obj_t *s_photo = nullptr, *s_photoCredit = nullptr;   // aircraft photo above the card
 static char s_lastRouteReq[12] = "";
 static lv_obj_t *s_hudWifi = nullptr, *s_hudCount = nullptr, *s_hudClock = nullptr, *s_hudBatt = nullptr, *s_hudDate = nullptr;
@@ -137,6 +140,26 @@ static void fold_ascii(char *s) {
 }
 
 // ----------------------------------------------------------------- detail card
+// How the route line labels airports. LABEL_NAME is the historical behaviour.
+static AirportLabelFormat s_labelFmt = AIRPORT_LABEL_DEFAULT;
+
+// Set the route text, choosing the largest font that still keeps it on one line. Codes
+// ("LAX -> JFK") always fit and read better big; full names fall back to the body font
+// and wrap onto a second line.
+static void set_route_text(const char *txt) {
+    const lv_font_t *f = F16();
+    if (lv_txt_get_width(txt, strlen(txt), f, 0, LV_TEXT_FLAG_NONE) > s_cardInnerW) f = F14();
+    lv_obj_set_style_text_font(s_cardRoute, f, 0);
+    lv_label_set_text(s_cardRoute, txt);
+}
+
+// The route line is one large line for codes and two wrapped lines for long names, so the
+// card is sized to whatever it actually needs instead of to the worst case.
+static void fit_card_height(void) {
+    lv_obj_update_layout(s_cardRoute);
+    lv_obj_set_height(s_card, s_cardRouteY + lv_obj_get_height(s_cardRoute) + 2 * CARD_PAD);
+}
+
 static void refresh_card(void) {
     AcInfo in;
     if (!radar::selected(in)) {
@@ -173,18 +196,21 @@ static void refresh_card(void) {
         snprintf(s_lastRouteReq, sizeof(s_lastRouteReq), "%s", in.call);
         route_request(in.call);
     }
-    char rfrom[40], rto[40];
+    RouteAirport rfrom, rto;
     if (!in.call[0]) {
-        lv_label_set_text(s_cardRoute, "Route -");                 // no callsign -> nothing to look up
-    } else if (route_get(in.call, rfrom, sizeof(rfrom), rto, sizeof(rto))) {
-        char rt[96];
-        if (rfrom[0] || rto[0]) snprintf(rt, sizeof(rt), "%s -> %s", rfrom[0] ? rfrom : "?", rto[0] ? rto : "?");
-        else                    snprintf(rt, sizeof(rt), "Route unavailable");
+        set_route_text("Route -");                                 // no callsign -> nothing to look up
+    } else if (route_get(in.call, rfrom, rto)) {
+        char a[sizeof(rfrom.name)], b[sizeof(rto.name)], rt[96];
+        route_format(rfrom, s_labelFmt, a, sizeof(a));
+        route_format(rto,   s_labelFmt, b, sizeof(b));
+        if (a[0] || b[0]) snprintf(rt, sizeof(rt), "%s -> %s", a[0] ? a : "?", b[0] ? b : "?");
+        else              snprintf(rt, sizeof(rt), "Route unavailable");
         fold_ascii(rt);
-        lv_label_set_text(s_cardRoute, rt);
+        set_route_text(rt);
     } else {
-        lv_label_set_text(s_cardRoute, "Looking up route...");     // pending: lookup in flight
+        set_route_text("Looking up route...");                     // pending: lookup in flight
     }
+    fit_card_height();
 
     // aircraft photo (planespotters), shown above the card when one is available
     if (in.hex[0]) photo_request(in.hex);
@@ -588,16 +614,21 @@ static lv_obj_t *make_round_panel(lv_obj_t *parent) {
 static void build_card(void) {
     s_card = lv_obj_create(s_tileRadar);
     lv_obj_remove_style_all(s_card);
-    // large text needs a taller card (three 18px data lines + the route line below them)
-    lv_obj_set_size(s_card, s_bigText ? 316 : 300, s_bigText ? 148 : 118);
-    lv_obj_align(s_card, LV_ALIGN_CENTER, 0, s_bigText ? 56 : 66);
+    // large text needs a taller card (three 18px data lines + the route line below them).
+    // The height is a starting point only — fit_card_height() trims it to the route line.
+    const lv_coord_t cardW = s_bigText ? 316 : 300;
+    s_cardInnerW = cardW - 2 * CARD_PAD;
+    lv_obj_set_size(s_card, cardW, s_bigText ? 148 : 118);
+    // Anchored by its top edge, not its centre: the card grows downwards into empty space
+    // when the route wraps, instead of creeping up over the photo credit above it.
+    lv_obj_align(s_card, LV_ALIGN_TOP_MID, 0, s_bigText ? 215 : 240);
     lv_obj_set_style_bg_color(s_card, UI_PANEL, 0);
     lv_obj_set_style_bg_opa(s_card, 235, 0);
     lv_obj_set_style_radius(s_card, 14, 0);
     lv_obj_set_style_border_color(s_card, UI_GREEN, 0);
     lv_obj_set_style_border_opa(s_card, 90, 0);
     lv_obj_set_style_border_width(s_card, 1, 0);
-    lv_obj_set_style_pad_all(s_card, 12, 0);
+    lv_obj_set_style_pad_all(s_card, CARD_PAD, 0);
     lv_obj_add_flag(s_card, LV_OBJ_FLAG_CLICKABLE);   // consume taps (don't deselect)
     lv_obj_clear_flag(s_card, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_card, LV_OBJ_FLAG_HIDDEN);
@@ -617,10 +648,16 @@ static void build_card(void) {
     lv_obj_set_style_text_color(s_cardR, UI_SOFT, 0);
     lv_obj_align(s_cardR, LV_ALIGN_TOP_LEFT, s_bigText ? 160 : 150, s_bigText ? 30 : 26);
 
+    // Full airport names are too wide for one line, so the route label wraps at the card
+    // width (without an explicit width a label is content-sized and the text is simply
+    // clipped by the card). refresh_card() picks the font and fit_card_height() the height.
+    s_cardRouteY = s_bigText ? 100 : 76;
     s_cardRoute = lv_label_create(s_card);
     lv_obj_set_style_text_font(s_cardRoute, F14(), 0);
     lv_obj_set_style_text_color(s_cardRoute, UI_GREEN, 0);
-    lv_obj_align(s_cardRoute, LV_ALIGN_TOP_LEFT, 0, s_bigText ? 100 : 76);
+    lv_obj_set_width(s_cardRoute, s_cardInnerW);
+    lv_label_set_long_mode(s_cardRoute, LV_LABEL_LONG_WRAP);
+    lv_obj_align(s_cardRoute, LV_ALIGN_TOP_LEFT, 0, s_cardRouteY);
 
     // aircraft photo + credit, floating above the card (hidden until one loads)
     s_photo = lv_canvas_create(s_tileRadar);

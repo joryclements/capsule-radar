@@ -25,6 +25,17 @@ static const float RANGE_STEPS_KM[] = {10.0f, 20.0f, 30.0f, 50.0f, 100.0f};
 #define MOTION_INTERP       1              // 1 = glyphs glide between polls; 0 = snap to new pos
 #define AC_STALE_MS         15000          // keep the last contacts through brief empty feed responses
 
+// ---------- Airport labels (detail card route line) ----------
+// How the origin -> destination airports are labelled on the aircraft detail card.
+// All three forms are looked up and cached together, so switching format never needs
+// a fresh lookup. The full name is the fallback whenever the chosen code is missing.
+enum AirportLabelFormat {
+    LABEL_IATA = 0,   // 3-letter code, e.g. "LAX"
+    LABEL_ICAO = 1,   // 4-letter code, e.g. "KLAX"
+    LABEL_NAME = 2,   // full airport name, e.g. "Los Angeles"
+};
+#define AIRPORT_LABEL_DEFAULT LABEL_NAME
+
 // ---------- Weather forecast (Open-Meteo, no API key) ----------
 #define WEATHER_REFRESH_MS  1800000UL      // 30 minutes; forecast data changes slowly
 #define WX_RADAR_REFRESH_MS 300000UL       // RainViewer frames update about every 5 minutes

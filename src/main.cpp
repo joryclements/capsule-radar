@@ -223,14 +223,14 @@ static void adsb_task(void*) {
             // feed for long; the next loop iteration polls again as soon as they return.
             char wantCall[12];
             if (route_pending(wantCall, sizeof(wantCall))) {
-                char from[40] = "", to[40] = "";
-                if (route_cache_get(wantCall, from, sizeof(from), to, sizeof(to))) {
+                RouteAirport from, to;
+                if (route_cache_get(wantCall, from, to)) {
                     route_store(wantCall, from, to);                       // NVS hit, no network
-                    Serial.printf("[route] %s (cache): '%s' -> '%s'\n", wantCall, from, to);
-                } else if (route_fetch(wantCall, from, sizeof(from), to, sizeof(to))) {
+                    Serial.printf("[route] %s (cache): '%s' -> '%s'\n", wantCall, from.name, to.name);
+                } else if (route_fetch(wantCall, from, to)) {
                     route_store(wantCall, from, to);
                     route_cache_put(wantCall, from, to);                  // remember across reboots
-                    Serial.printf("[route] %s (net): '%s' -> '%s'\n", wantCall, from, to);
+                    Serial.printf("[route] %s (net): '%s' -> '%s'\n", wantCall, from.name, to.name);
                 } else {
                     route_store(wantCall, from, to);   // empty -> don't refetch this session
                     Serial.printf("[route] %s: no route\n", wantCall);
@@ -900,7 +900,7 @@ void setup() {
     Serial.printf("PSRAM: %u bytes free\n", (unsigned)ESP.getFreePsram());
 
     loadSettings();
-    route_cache_begin();   // clear stale route cache if the label format changed
+    route_cache_begin();   // clear stale route cache if the stored layout changed
 
     // --- Display + LVGL (M0) ----------------------------------------------
     // CO5300 AMOLED over QSPI + LVGL draw buffers in PSRAM, then a hello screen.

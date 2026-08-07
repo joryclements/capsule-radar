@@ -34,6 +34,20 @@ static SDL_Window   *s_win = NULL;
 static SDL_Renderer *s_ren = NULL;
 static SDL_Texture  *s_tex = NULL;
 
+// Mock airports for route lookups (the sim has no network). Kirkwall deliberately has no
+// IATA code — common for small and military fields — so the name fallback in route_format
+// is exercised, and the long names cover the wrapped case on the detail card.
+static const RouteAirport MOCK_AIRPORTS[8] = {
+    { "MAD", "LEMD", "Madrid" },
+    { "LHR", "EGLL", "London Heathrow" },
+    { "CDG", "LFPG", "Paris Charles de Gaulle" },
+    { "BER", "EDDB", "Berlin Brandenburg" },
+    { "FCO", "LIRF", "Rome Fiumicino" },
+    { "LIS", "LPPT", "Lisbon" },
+    { "",    "EGPA", "Kirkwall" },
+    { "DUB", "EIDW", "Dublin" },
+};
+
 // LVGL -> SDL texture. Accumulate dirty areas, present once per refresh.
 static void sdl_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *px) {
     const int w = area->x2 - area->x1 + 1;
@@ -263,11 +277,9 @@ int main(int argc, char **argv) {
         // fulfil route lookups with a mock (the sim has no network)
         char wc[12];
         if (route_pending(wc, sizeof(wc))) {
-            static const char *cities[] = { "Madrid", "London", "Paris", "Berlin",
-                                            "Rome", "Lisbon", "Amsterdam", "Dublin" };
             int h = 0;
             for (const char *p = wc; *p; ++p) h += (unsigned char)*p;
-            route_store(wc, cities[h % 8], cities[(h / 2 + 3) % 8]);
+            route_store(wc, MOCK_AIRPORTS[h % 8], MOCK_AIRPORTS[(h / 2 + 3) % 8]);
         }
         lv_timer_handler();
 
@@ -314,7 +326,7 @@ int main(int argc, char **argv) {
             }
             radar::select(0);                            // select an aircraft so the card shows
             ui_on_data_updated();
-            { char wc[12]; if (route_pending(wc, sizeof(wc))) route_store(wc, "Madrid", "London"); }
+            { char wc[12]; if (route_pending(wc, sizeof(wc))) route_store(wc, MOCK_AIRPORTS[0], MOCK_AIRPORTS[1]); }
             ui_on_data_updated();                        // pick up the mock route for the card
             int ow, oh;
             SDL_GetRendererOutputSize(s_ren, &ow, &oh);
