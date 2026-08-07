@@ -23,6 +23,15 @@ This is a fork of **[socquique/capsule-radar](https://github.com/socquique/capsu
 - **Airport label format** ([#1](https://github.com/joryclements/capsule-radar/pull/1)) — the origin → destination route can read `LAX -> JFK`, `KLAX -> KJFK`, or `Los Angeles -> New York`. Choose it under **Airport labels** on the config page at `http://capsuleradar.local/`. All three forms are looked up and cached together, so switching format is instant and never re-queries adsbdb. Full name is the default, so an upstream device behaves identically until you change it.
 - **Route line wrapping** — the label had no explicit width, so it was content-sized, single-line, and long routes were silently cut off at the card edge. It now wraps at the card width and the card grows to fit; labels that fit on one line render in the larger font.
 
+### Branches
+
+| Branch | Purpose |
+|---|---|
+| `main` | Tracks upstream plus the changes above. This is the branch to build from. |
+| [`local/no-photo-credit`](https://github.com/joryclements/capsule-radar/tree/local/no-photo-credit) | Personal-use build that hides the on-screen `Photo: <photographer>` caption under aircraft photos. One commit on top of `main`; rebase it after each `main` update. |
+
+> `local/no-photo-credit` is not merged into `main` and is not intended to be. planespotters.net supplies aircraft photos on free / non-commercial / **attribution** terms (see [`src/photo_client.cpp`](src/photo_client.cpp)), which `main` honours — the photographer's name is shown under every photo. That branch exists for one private device and should not be redistributed or flashed onto anything you share.
+
 <p align="center">
   <img src="docs/img/device.JPG" width="330" alt="Capsule Radar — a live flight on the device">
 </p>
