@@ -20,7 +20,12 @@ static void route_key(const char *callsign, char *out, size_t on) {
     out[j] = 0;
 }
 
-#define ROUTE_FMT_VER 2   // bump to invalidate cached routes when the label format changes
+// Bump to invalidate cached routes when the stored field layout changes. NOT the user's
+// chosen label format: every form is cached, so switching format must keep the cache.
+//   v2 = "epoch|from|to"
+//   v3 = "epoch|iata|icao|name|iata|icao|name"  (origin, then destination)
+#define ROUTE_FMT_VER 3
+#define ROUTE_FIELDS  7   // fields in a v3 cache entry
 
 void route_cache_begin() {
     Preferences p;
@@ -29,32 +34,45 @@ void route_cache_begin() {
     p.end();
 }
 
-bool route_cache_get(const char *callsign, char *from, size_t fn, char *to, size_t tn) {
-    if (fn) from[0] = 0;
-    if (tn) to[0] = 0;
+// Split "a|b|c" into up to n parts; returns how many were found.
+static int split_pipe(const String &v, String *out, int n) {
+    int part = 0, start = 0;
+    while (part < n) {
+        const int b = v.indexOf('|', start);
+        if (b < 0) { out[part++] = v.substring(start); break; }
+        out[part++] = v.substring(start, b);
+        start = b + 1;
+    }
+    return part;
+}
+
+bool route_cache_get(const char *callsign, RouteAirport &from, RouteAirport &to) {
+    from = RouteAirport();
+    to   = RouteAirport();
     if (!callsign || !callsign[0]) return false;
     char key[12];
     route_key(callsign, key, sizeof(key));
     if (!key[0]) return false;
     Preferences p;
     if (!p.begin("routes", true)) return false;
-    String v = p.getString(key, "");     // stored as "epoch|from|to"
+    String v = p.getString(key, "");     // stored as "epoch|iata|icao|name|iata|icao|name"
     p.end();
     if (v.length() == 0) return false;
-    const int b1 = v.indexOf('|');
-    if (b1 < 0) return false;
-    const uint32_t ts = (uint32_t)v.substring(0, b1).toInt();
-    const String rest = v.substring(b1 + 1);
-    const int b2 = rest.indexOf('|');
-    if (b2 < 0) return false;
+    String f[ROUTE_FIELDS];
+    if (split_pipe(v, f, ROUTE_FIELDS) != ROUTE_FIELDS) return false;
+    const uint32_t ts  = (uint32_t)f[0].toInt();
     const uint32_t now = (uint32_t)time(nullptr);    // expire stale routes (reused callsigns)
     if (now > 1700000000UL && ts > 1700000000UL && (now - ts) > 86400UL) return false;  // 24 h TTL
-    snprintf(from, fn, "%s", rest.substring(0, b2).c_str());
-    snprintf(to, tn, "%s", rest.substring(b2 + 1).c_str());
+    snprintf(from.iata, sizeof(from.iata), "%s", f[1].c_str());
+    snprintf(from.icao, sizeof(from.icao), "%s", f[2].c_str());
+    snprintf(from.name, sizeof(from.name), "%s", f[3].c_str());
+    snprintf(to.iata,   sizeof(to.iata),   "%s", f[4].c_str());
+    snprintf(to.icao,   sizeof(to.icao),   "%s", f[5].c_str());
+    snprintf(to.name,   sizeof(to.name),   "%s", f[6].c_str());
     return true;
 }
 
-void route_cache_put(const char *callsign, const char *from, const char *to) {
+void route_cache_put(const char *callsign, const RouteAirport &from, const RouteAirport &to) {
     if (!callsign || !callsign[0]) return;
     char key[12];
     route_key(callsign, key, sizeof(key));
@@ -63,14 +81,20 @@ void route_cache_put(const char *callsign, const char *from, const char *to) {
     if (!p.begin("routes", false)) return;
     int n = p.getInt("__n", 0);
     if (n >= ROUTE_CACHE_MAX) { p.clear(); n = 0; }   // wrap to bound NVS usage
-    String v = String((uint32_t)time(nullptr)) + "|" + String(from ? from : "") + "|" + String(to ? to : "");
+    String v = String((uint32_t)time(nullptr));
+    v += "|" + String(from.iata) + "|" + String(from.icao) + "|" + String(from.name);
+    v += "|" + String(to.iata)   + "|" + String(to.icao)   + "|" + String(to.name);
     if (p.putString(key, v) > 0) p.putInt("__n", n + 1);
     p.end();
 }
 
-// Most recognizable short airport label: a cleaned-up name ("Teesside", "Palma de
-// Mallorca", "London Heathrow"), falling back to the municipality, then the IATA code.
-static void pick_airport(JsonObjectConst ap, char *out, size_t n) {
+// Fill one end of the route. Every label form is kept, whatever the user's current choice
+// is, so switching format later never needs a refetch. out.name is the most recognizable
+// short label: a cleaned-up name ("Teesside", "Palma de Mallorca", "London Heathrow"),
+// falling back to the municipality, then the IATA code.
+static void pick_airport(JsonObjectConst ap, RouteAirport &out) {
+    snprintf(out.iata, sizeof(out.iata), "%s", (const char *)(ap["iata_code"] | ""));
+    snprintf(out.icao, sizeof(out.icao), "%s", (const char *)(ap["icao_code"] | ""));
     String s = (const char *)(ap["name"] | "");
     s.replace(" International Airport", "");
     s.replace(" Regional Airport", "");
@@ -79,16 +103,15 @@ static void pick_airport(JsonObjectConst ap, char *out, size_t n) {
     s.trim();
     if (s.length() == 0 || s.length() > 18) {           // name missing or too long -> municipality/IATA
         const char *muni = ap["municipality"] | "";
-        const char *iata = ap["iata_code"] | "";
-        snprintf(out, n, "%s", muni[0] ? muni : iata);
+        snprintf(out.name, sizeof(out.name), "%s", muni[0] ? muni : out.iata);
         return;
     }
-    snprintf(out, n, "%s", s.c_str());
+    snprintf(out.name, sizeof(out.name), "%s", s.c_str());
 }
 
-bool route_fetch(const char *callsign, char *from, size_t fn, char *to, size_t tn) {
-    if (fn) from[0] = 0;
-    if (tn) to[0] = 0;
+bool route_fetch(const char *callsign, RouteAirport &from, RouteAirport &to) {
+    from = RouteAirport();
+    to   = RouteAirport();
     if (!callsign || !callsign[0] || WiFi.status() != WL_CONNECTED) return false;
 
     // strip spaces from the callsign
@@ -117,9 +140,11 @@ bool route_fetch(const char *callsign, char *from, size_t fn, char *to, size_t t
     JsonDocument filter;
     filter["response"]["flightroute"]["origin"]["municipality"] = true;
     filter["response"]["flightroute"]["origin"]["iata_code"] = true;
+    filter["response"]["flightroute"]["origin"]["icao_code"] = true;
     filter["response"]["flightroute"]["origin"]["name"] = true;
     filter["response"]["flightroute"]["destination"]["municipality"] = true;
     filter["response"]["flightroute"]["destination"]["iata_code"] = true;
+    filter["response"]["flightroute"]["destination"]["icao_code"] = true;
     filter["response"]["flightroute"]["destination"]["name"] = true;
 
     JsonDocument doc;
@@ -131,7 +156,7 @@ bool route_fetch(const char *callsign, char *from, size_t fn, char *to, size_t t
     JsonObjectConst fr = doc["response"]["flightroute"].as<JsonObjectConst>();
     if (fr.isNull()) return false;   // "unknown callsign" etc.
 
-    pick_airport(fr["origin"].as<JsonObjectConst>(), from, fn);
-    pick_airport(fr["destination"].as<JsonObjectConst>(), to, tn);
-    return (from[0] || to[0]);
+    pick_airport(fr["origin"].as<JsonObjectConst>(), from);
+    pick_airport(fr["destination"].as<JsonObjectConst>(), to);
+    return (from.name[0] || to.name[0] || from.iata[0] || to.iata[0] || from.icao[0] || to.icao[0]);
 }

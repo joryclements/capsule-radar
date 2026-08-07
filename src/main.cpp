@@ -63,6 +63,7 @@ static bool                  g_useGps = false;                       // auto-set
 static int                   g_trailLen = 2;                         // aircraft trails 0=off 1=short 2=med 3=long (web/NVS)
 static int                   g_maxAc = 20;                           // max aircraft drawn on the scope (web/NVS)
 static bool                  g_bigText = false;                      // accessibility: large fonts (web/NVS, applied at boot)
+static int                   g_aptLabel = AIRPORT_LABEL_DEFAULT;     // 0=IATA 1=ICAO 2=full name on the detail card (web/NVS)
 static volatile bool         g_onBattery = false;                    // discharging (set on core 1, read on core 0)
 static bool                  g_rtcSynced = false;                    // RTC written from NTP this session?
 static std::vector<Aircraft> g_snap;                                 // last snapshot (instant re-render on zoom)
@@ -223,14 +224,14 @@ static void adsb_task(void*) {
             // feed for long; the next loop iteration polls again as soon as they return.
             char wantCall[12];
             if (route_pending(wantCall, sizeof(wantCall))) {
-                char from[40] = "", to[40] = "";
-                if (route_cache_get(wantCall, from, sizeof(from), to, sizeof(to))) {
+                RouteAirport from, to;
+                if (route_cache_get(wantCall, from, to)) {
                     route_store(wantCall, from, to);                       // NVS hit, no network
-                    Serial.printf("[route] %s (cache): '%s' -> '%s'\n", wantCall, from, to);
-                } else if (route_fetch(wantCall, from, sizeof(from), to, sizeof(to))) {
+                    Serial.printf("[route] %s (cache): '%s' -> '%s'\n", wantCall, from.name, to.name);
+                } else if (route_fetch(wantCall, from, to)) {
                     route_store(wantCall, from, to);
                     route_cache_put(wantCall, from, to);                  // remember across reboots
-                    Serial.printf("[route] %s (net): '%s' -> '%s'\n", wantCall, from, to);
+                    Serial.printf("[route] %s (net): '%s' -> '%s'\n", wantCall, from.name, to.name);
                 } else {
                     route_store(wantCall, from, to);   // empty -> don't refetch this session
                     Serial.printf("[route] %s: no route\n", wantCall);
@@ -261,6 +262,7 @@ static void loadSettings() {
     g_units            = p.getInt("units", 0);
     g_tz               = p.getString("tz", TZ_STR);
     g_bigText          = p.getBool("bigtext", false);
+    g_aptLabel         = p.getInt("aptlabel", AIRPORT_LABEL_DEFAULT);
     p.end();
     // fonts are baked into the widgets at creation time, so the large-text flag must be
     // in place before display::begin() builds the UI (loadSettings runs first in setup)
@@ -388,6 +390,13 @@ static void handleRoot() {
         snprintf(o, sizeof(o), "<option value=%d%s>%s</option>", i, i == th ? " selected" : "", tnames[i]);
         topts += o;
     }
+    const char *lnames[] = {"IATA code (LAX)", "ICAO code (KLAX)", "Full name (Los Angeles)"};
+    String lopts;
+    for (int i = 0; i < 3; ++i) {
+        char o[96];
+        snprintf(o, sizeof(o), "<option value=%d%s>%s</option>", i, i == g_aptLabel ? " selected" : "", lnames[i]);
+        lopts += o;
+    }
     const int idleSecs[] = {10, 20, 30, 60, 120, 300, 1800, 3600, 7200, 14400, 28800};
     const int curIdle = (int)(g_idleDimMs / 1000);
     String iopts;
@@ -467,7 +476,9 @@ static void handleRoot() {
         gpsRow += "<div style='font-size:12px;opacity:.6;margin:-2px 0 6px'>"
                   "When on, the location above is used until the GPS gets a fix, then it takes over.</div>";
     }
-    static const size_t BUFSZ = 10240;
+    // The page renders to ~10.0 kB on the -G variant, so 10240 left barely 200 bytes spare
+    // and snprintf truncates in silence — which would cut the <script> block at the end.
+    static const size_t BUFSZ = 12288;
     static char *buf = (char *)ps_malloc(BUFSZ);   // PSRAM: keep this big page buffer off the scarce
     if (!buf) return;                              //   internal heap (the contiguous RAM mbedTLS needs)
     snprintf(buf, BUFSZ,
@@ -509,6 +520,7 @@ static void handleRoot() {
         "%s"
         "<label>Display range</label><select name=range>%s</select>"
         "<label>Theme</label><select name=theme>%s</select>"
+        "<label>Airport labels</label><select name=aptlabel>%s</select>"
         "<label>Time zone</label><select name=tz>%s</select>"
         "<button>Save &amp; restart</button></form></div>"
         "<div class=card><div class=t>Display</div>"
@@ -572,7 +584,7 @@ static void handleRoot() {
         "if(b<0)for(i=0;i<e.options.length;i++){if(+e.options[i].dataset.off===o){b=i;break;}}"
         "if(b>=0)e.selectedIndex=b;})();</script></body></html>",
         g_settings.homeLat, g_settings.homeLon, gpsRow.c_str(), ropts.c_str(), topts.c_str(),
-        tzopts.c_str(),
+        lopts.c_str(), tzopts.c_str(),
         g_brightnessDay, iopts.c_str(), g_showSweep ? "checked" : "",
         g_showAirports ? "checked" : "", g_hideGround ? "checked" : "", maopts.c_str(), g_milOnly ? "checked" : "",
         tlopts.c_str(), mxopts.c_str(), g_bigText ? "checked" : "", g_rotation, uopts.c_str(),
@@ -595,6 +607,10 @@ static void handleSave() {
     }
     if (g_web.hasArg("range")) p.putFloat("rangeKm", g_web.arg("range").toFloat());
     if (g_web.hasArg("theme")) p.putInt("theme", g_web.arg("theme").toInt());
+    if (g_web.hasArg("aptlabel")) {   // reject anything outside the enum rather than storing it
+        const int v = g_web.arg("aptlabel").toInt();
+        if (v >= LABEL_IATA && v <= LABEL_NAME) p.putInt("aptlabel", v);
+    }
     if (g_web.hasArg("tz")) {
         const int i = g_web.arg("tz").toInt();
         if (i >= 0 && i < TZOPTS_N) p.putString("tz", TZOPTS[i].tz);
@@ -900,7 +916,7 @@ void setup() {
     Serial.printf("PSRAM: %u bytes free\n", (unsigned)ESP.getFreePsram());
 
     loadSettings();
-    route_cache_begin();   // clear stale route cache if the label format changed
+    route_cache_begin();   // clear stale route cache if the stored layout changed
 
     // --- Display + LVGL (M0) ----------------------------------------------
     // CO5300 AMOLED over QSPI + LVGL draw buffers in PSRAM, then a hello screen.
@@ -939,6 +955,7 @@ void setup() {
     radar::setThemeChangedCb(saveTheme);
     ui_set_range_cb(onRangeChange);              // on-screen zoom button
     ui_set_units(g_units);                       // apply saved unit preset
+    ui_set_airport_label(g_aptLabel);            // apply saved airport label format
     ui_set_range_km(g_settings.rangeKm);         // show the loaded range
 
     imu_begin();       // face-down sleep (no-op if the IMU isn't detected)

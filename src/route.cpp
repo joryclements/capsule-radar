@@ -8,8 +8,8 @@
 static std::mutex s_m;
 static char s_want[12]     = "";   // callsign the UI asked about
 static char s_doneCall[12] = "";   // callsign the stored result belongs to
-static char s_from[40]     = "";
-static char s_to[40]       = "";
+static RouteAirport s_from;
+static RouteAirport s_to;
 
 void route_request(const char *callsign) {
     std::lock_guard<std::mutex> g(s_m);
@@ -59,19 +59,35 @@ static void ascii_fold(const char *in, char *out, size_t n) {
     out[o] = 0;
 }
 
-void route_store(const char *callsign, const char *from, const char *to) {
-    std::lock_guard<std::mutex> g(s_m);
-    snprintf(s_doneCall, sizeof(s_doneCall), "%s", callsign ? callsign : "");
-    ascii_fold(from, s_from, sizeof(s_from));
-    ascii_fold(to,   s_to,   sizeof(s_to));
+// Only the name can carry accents; IATA/ICAO codes are ASCII letters by definition.
+static void store_airport(const RouteAirport &in, RouteAirport &out) {
+    snprintf(out.iata, sizeof(out.iata), "%s", in.iata);
+    snprintf(out.icao, sizeof(out.icao), "%s", in.icao);
+    ascii_fold(in.name, out.name, sizeof(out.name));
 }
 
-bool route_get(const char *callsign, char *from, size_t fn, char *to, size_t tn) {
+void route_store(const char *callsign, const RouteAirport &from, const RouteAirport &to) {
+    std::lock_guard<std::mutex> g(s_m);
+    snprintf(s_doneCall, sizeof(s_doneCall), "%s", callsign ? callsign : "");
+    store_airport(from, s_from);
+    store_airport(to,   s_to);
+}
+
+bool route_get(const char *callsign, RouteAirport &from, RouteAirport &to) {
     std::lock_guard<std::mutex> g(s_m);
     if (callsign && s_doneCall[0] && strcmp(callsign, s_doneCall) == 0) {
-        snprintf(from, fn, "%s", s_from);
-        snprintf(to, tn, "%s", s_to);
+        from = s_from;
+        to   = s_to;
         return true;
     }
     return false;
+}
+
+// The full name is the universal fallback: an airport with no IATA code must not render as
+// an empty label, so IATA/ICAO both degrade to the name rather than to nothing.
+void route_format(const RouteAirport &ap, AirportLabelFormat fmt, char *out, size_t n) {
+    const char *s = ap.name;
+    if      (fmt == LABEL_IATA && ap.iata[0]) s = ap.iata;
+    else if (fmt == LABEL_ICAO && ap.icao[0]) s = ap.icao;
+    snprintf(out, n, "%s", s);
 }
