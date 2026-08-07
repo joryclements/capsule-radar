@@ -10,6 +10,19 @@
   <a href="https://github.com/socquique/capsule-radar/stargazers"><img src="https://img.shields.io/github/stars/socquique/capsule-radar?style=social" alt="GitHub stars"></a>
 </p>
 
+## Fork differences
+
+This is a fork of **[socquique/capsule-radar](https://github.com/socquique/capsule-radar)**, currently based on upstream `main` at **FW 1.3.24** with nothing diverged — everything below is additive.
+
+| | Upstream | This fork |
+|---|---|---|
+| Firmware version | 1.3.24 | **1.3.25** |
+| Route on the detail card | full airport name only | **IATA / ICAO / full name**, selectable |
+| Long routes | clipped at the card edge | **wrapped**, and short labels use a larger font |
+
+- **Airport label format** ([#1](https://github.com/joryclements/capsule-radar/pull/1)) — the origin → destination route can read `LAX -> JFK`, `KLAX -> KJFK`, or `Los Angeles -> New York`. Choose it under **Airport labels** on the config page at `http://capsuleradar.local/`. All three forms are looked up and cached together, so switching format is instant and never re-queries adsbdb. Full name is the default, so an upstream device behaves identically until you change it.
+- **Route line wrapping** — the label had no explicit width, so it was content-sized, single-line, and long routes were silently cut off at the card edge. It now wraps at the card width and the card grows to fit; labels that fit on one line render in the larger font.
+
 <p align="center">
   <img src="docs/img/device.JPG" width="330" alt="Capsule Radar — a live flight on the device">
 </p>
