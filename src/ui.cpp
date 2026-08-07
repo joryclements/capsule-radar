@@ -218,8 +218,8 @@ static void refresh_card(void) {
 
     // aircraft photo (planespotters), shown above the card when one is available
     if (in.hex[0]) photo_request(in.hex);
-    int pw = 0, ph = 0; char pcred[40];
-    if (s_photo && in.hex[0] && photo_get(in.hex, &pw, &ph, pcred, sizeof(pcred)) && pw > 0 && ph > 0) {
+    int pw = 0, ph = 0;
+    if (s_photo && in.hex[0] && photo_get(in.hex, &pw, &ph, nullptr, 0) && pw > 0 && ph > 0) {
         int mw, mh;
         lv_color_t *pbuf = photo_buffer(&mw, &mh);
         lv_canvas_set_buffer(s_photo, pbuf, pw, ph, LV_IMG_CF_TRUE_COLOR);
@@ -227,13 +227,11 @@ static void refresh_card(void) {
         lv_obj_align(s_photo, LV_ALIGN_CENTER, 0, -28 - ph / 2);   // sit lower: fill the band down to the card
         lv_obj_clear_flag(s_photo, LV_OBJ_FLAG_HIDDEN);
         lv_obj_invalidate(s_photo);
-        if (s_photoCredit) {
-            char c[52];
-            snprintf(c, sizeof(c), "Photo: %s", pcred[0] ? pcred : "planespotters.net");
-            lv_label_set_text(s_photoCredit, c);
-            lv_obj_align_to(s_photoCredit, s_photo, LV_ALIGN_OUT_BOTTOM_MID, 0, 1);
-            lv_obj_clear_flag(s_photoCredit, LV_OBJ_FLAG_HIDDEN);
-        }
+        // LOCAL BUILD ONLY: the on-screen "Photo: <photographer>" credit is suppressed.
+        // planespotters.net supplies these photos on free/non-commercial/ATTRIBUTION terms
+        // (see photo_client.cpp), so this must not be published or sent upstream. The
+        // photographer is still logged to serial by photo_client.cpp.
+        if (s_photoCredit) lv_obj_add_flag(s_photoCredit, LV_OBJ_FLAG_HIDDEN);
     } else if (s_photo) {
         // No image to show yet: hide the canvas, but use the caption line to tell the
         // user what's happening — "Loading..." while the fetch is in flight, or a quiet
