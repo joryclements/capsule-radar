@@ -28,6 +28,19 @@ jobs:
       - name: Build firmware
         run: pio run -e esp32-s3-amoled-175
 
+      # A tag push already carries one; a manual run does not, and action-gh-release
+      # needs a tag either way. Fall back to FW_VERSION from config.h so the
+      # workflow_dispatch trigger actually produces a release.
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            VER=$(grep -oE 'FW_VERSION "[0-9.]+"' src/config.h | grep -oE '[0-9.]+' | head -1)
+            echo "name=v${VER:-0.0.0}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Merge into a single flashable binary
         run: |
           B=.pio/build/esp32-s3-amoled-175
@@ -43,13 +56,14 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
           files: |
             CapsuleRadar-esp32s3.bin
             CapsuleRadar-ota.bin
           generate_release_notes: true
           body: |
             **First flash (USB):** `CapsuleRadar-esp32s3.bin` — the full merged image (offset `0x0`).
-            - Browser, no toolchain: https://socquique.github.io/capsule-radar/
+            - Browser, no toolchain: https://joryclements.github.io/capsule-radar/
             - Or: `esptool.py --chip esp32s3 write_flash 0x0 CapsuleRadar-esp32s3.bin`
 
             **Update over WiFi (no cable):** `CapsuleRadar-ota.bin` — the app-only image.
