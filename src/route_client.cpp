@@ -132,7 +132,9 @@ bool route_fetch(const char *callsign, RouteAirport &from, RouteAirport &to) {
     http.setConnectTimeout(3000);   // short: runs on the feed task, don't stall the live poll
     http.setTimeout(6000);
     if (!http.begin(client, url)) return false;
-    http.addHeader("User-Agent", ADSB_USER_AGENT);
+    // MUST be setUserAgent(): addHeader() silently drops User-Agent (it is on
+    // HTTPClient's "handled by code" list), leaving the default "ESP32HTTPClient".
+    http.setUserAgent(ADSB_USER_AGENT);
 
     const int code = http.GET();
     if (code != 200) { http.end(); return false; }
