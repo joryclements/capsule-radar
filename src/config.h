@@ -1,7 +1,7 @@
 #pragma once
 // Capsule Radar — build & user configuration.
 
-#define FW_VERSION "1.4.1"   // shown on the web config page + Stats screen; bump on release
+#define FW_VERSION "1.4.2"   // shown on the web config page + Stats screen; bump on release
 
 // ---------- Home location (default: Dénia, Spain) ----------
 // Overridable at runtime via the captive portal (stored in NVS).
@@ -22,6 +22,8 @@ static const float RANGE_STEPS_KM[] = {10.0f, 20.0f, 30.0f, 50.0f, 100.0f};
 #define POLL_INTERVAL_BATTERY_MS 5000      // slower polling when running on battery
 #define MOTION_INTERP       1              // 1 = glyphs glide between polls; 0 = snap to new pos
 #define AC_STALE_MS         15000          // keep the last contacts through brief empty feed responses
+#define WIFI_RETRY_MS       20000UL        // WiFi dropped mid-session: re-kick the saved network this often
+#define WIFI_DOWN_REBOOT_MS 600000UL       // ...and reboot if it is still down after this long (10 min)
 
 // ---------- Airport labels (detail card route line) ----------
 // How the origin -> destination airports are labelled on the aircraft detail card.

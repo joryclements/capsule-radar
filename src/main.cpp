@@ -1150,6 +1150,31 @@ void loop() {
         }
     }
 
+    // Mid-session drop: the block above only covers booting into the portal. If WiFi was up
+    // and then drops (router reboot, signal blip), the core's auto-reconnect gives up after
+    // one failed attempt, and with no portal open the radar sat offline until power-cycled.
+    // Keep re-kicking the saved network; if it stays down for long, reboot (which falls back
+    // to the portal + retry path above).
+    if (!g_bootedIntoPortal && !g_rebootAtMs && g_wm.getWiFiIsSaved()) {
+        static uint32_t downSince = 0, lastKick = 0;
+        if (WiFi.status() == WL_CONNECTED) {
+            downSince = 0;
+        } else {
+            if (!downSince) {
+                downSince = lastKick = millis();
+                Serial.println("[wifi] connection lost");
+            }
+            if (millis() - downSince > WIFI_DOWN_REBOOT_MS) {
+                Serial.println("[wifi] still down after WIFI_DOWN_REBOOT_MS -> restarting");
+                g_rebootAtMs = millis() + 100;
+            } else if (millis() - lastKick > WIFI_RETRY_MS) {
+                lastKick = millis();
+                Serial.println("[wifi] reconnecting to saved network...");
+                WiFi.reconnect();
+            }
+        }
+    }
+
     // OTA: set up once WiFi is up, then service it every loop (flash over the air)
     static bool otaUp = false;
     if (!otaUp && WiFi.status() == WL_CONNECTED) {
